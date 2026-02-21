@@ -166,6 +166,7 @@ def _render_history_chart(chart_df, light_mode: bool) -> None:
     )
     axis_color = "#111827" if light_mode else "#e5e7eb"
     grid_color = "#d1d5db" if light_mode else "#374151"
+    plot_fill = "#ffffff" if light_mode else "#0f172a"
     chart = (
         alt.Chart(plot_df)
         .mark_line()
@@ -193,7 +194,8 @@ def _render_history_chart(chart_df, light_mode: bool) -> None:
             labelColor=axis_color,
             titleColor=axis_color,
         )
-        .configure_view(strokeOpacity=0)
+        .configure_view(strokeOpacity=0, fill=plot_fill)
+        .configure(background="transparent")
     )
     st.altair_chart(chart, use_container_width=True)
 
@@ -312,7 +314,32 @@ def main() -> None:
         if not bg_data_uri:
             st.caption("Hintergrundbild fehlt: bitte `assets/kai.jpg` ins Projekt legen.")
 
-    st.subheader("Counter Steuerung")
+    header_left, header_right = st.columns([3, 1])
+    with header_left:
+        st.subheader("Counter Steuerung")
+    global_reset_key = "global:reset_all"
+    with header_right:
+        global_reset_label = (
+            "Alle Reset bestaetigen" if _is_action_armed(global_reset_key) else "Alle auf 0"
+        )
+        if st.button(global_reset_label, use_container_width=True, type="primary"):
+            if _is_action_armed(global_reset_key):
+                _disarm_action(global_reset_key)
+                if _run_db_action(
+                    action_key=global_reset_key,
+                    callback=lambda: [
+                        reset_counter(engine, player)
+                        for player in PLAYERS
+                        if counters.get(player, 0) != 0
+                    ],
+                ):
+                    st.rerun()
+            else:
+                _arm_action(global_reset_key)
+                st.warning(
+                    f"Globaler Reset: bitte innerhalb von {CONFIRM_TIMEOUT_SECONDS}s bestaetigen."
+                )
+
     light_mode = bool(st.session_state.get("light_mode", False))
     for row_start in (0, 4):
         cols = st.columns(4)
