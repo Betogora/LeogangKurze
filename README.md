@@ -52,6 +52,30 @@ Die Historie wird in einer externen PostgreSQL-Datenbank gespeichert, damit Date
 DATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@HOST:PORT/DBNAME"
 ```
 
+## Fehlerbehebung: DATABASE_URL fehlt
+
+Wenn beim Start eine Meldung wie `DATABASE_URL fehlt` erscheint:
+
+1. Streamlit Cloud: App -> Settings -> Secrets oeffnen
+2. `DATABASE_URL` im TOML-Format setzen (siehe Beispiel oben)
+3. App neu starten (Reboot/Restart)
+4. Optional lokal pruefen:
+   - Windows PowerShell: `$env:DATABASE_URL="postgresql+psycopg2://USER:PASSWORD@HOST:PORT/DBNAME"`
+   - Danach: `streamlit run app.py`
+
+Hinweis: Ohne gesetzte `DATABASE_URL` startet die App jetzt mit klarer Setup-Fehlermeldung statt mit einem Runtime-Traceback.
+
+## Deployment Smoke-Test (2 Minuten)
+
+Nach jedem Deploy kurz pruefen:
+
+1. App startet ohne Fehlermeldung.
+2. Bei einem Spieler `+1` klicken, Wert steigt.
+3. `Undo` testen (2-Klick-Bestaetigung), Wert geht zurueck.
+4. `Reset` testen (2-Klick-Bestaetigung), Wert wird 0.
+5. Zeitraum wechseln und Linienplot aktualisieren.
+6. CSV-Export herunterladen und Inhalt stichprobenartig pruefen.
+
 ## Persistenz-Hinweis
 
 Die Community Cloud kann Apps bei Inaktivitaet schlafen legen. Durch die externe DB bleiben alle Counter-Events dauerhaft gespeichert.

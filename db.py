@@ -6,10 +6,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 
+class DatabaseConfigError(RuntimeError):
+    """Raised when required database configuration is missing."""
+
+
 def get_database_url() -> str:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
-        raise RuntimeError(
+        raise DatabaseConfigError(
             "DATABASE_URL fehlt. Bitte in Streamlit Secrets oder als Umgebungsvariable setzen."
         )
     return database_url
