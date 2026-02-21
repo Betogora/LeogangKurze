@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable, Dict, Optional
 
 import altair as alt
+import pandas as pd
 import streamlit as st
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -40,6 +41,7 @@ TIME_WINDOWS: Dict[str, Optional[int]] = {
 CONFIRM_TIMEOUT_SECONDS = 8
 ACTION_COOLDOWN_SECONDS = 0.75
 STEP_SMALL = 1
+GLOBAL_HISTORY_START_UTC = pd.Timestamp("2026-02-21 13:30:00", tz="UTC")
 
 
 def _init_ui_state() -> None:
@@ -174,6 +176,16 @@ def _render_history_chart(chart_df) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
+def _apply_global_history_start(event_history: pd.DataFrame) -> pd.DataFrame:
+    if event_history.empty:
+        return event_history
+    filtered = event_history.copy()
+    created_at_utc = pd.to_datetime(filtered["created_at"], errors="coerce", utc=True)
+    filtered = filtered.loc[created_at_utc >= GLOBAL_HISTORY_START_UTC].copy()
+    filtered["created_at"] = pd.to_datetime(filtered["created_at"], errors="coerce")
+    return filtered
+
+
 def _counter_value_color(value: int) -> str:
     magnitude = min(abs(int(value)), 50)
     intensity = magnitude / 50.0
@@ -271,6 +283,7 @@ def main() -> None:
         event_history = get_event_history(engine, hours=hours)
     except Exception as exc:
         _show_db_runtime_error(exc)
+    event_history = _apply_global_history_start(event_history)
 
     visible_players = st.session_state["visible_players"]
     if event_history.empty:
