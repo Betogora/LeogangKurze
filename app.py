@@ -130,19 +130,19 @@ def _apply_theme_mode(light_mode: bool, bg_data_uri: str) -> None:
     st.markdown(
         f"""
         <style>
-        .stApp {
+        .stApp {{
             background-color: #0b1220;
             color: #e5e7eb;
-        }
-        [data-testid="stSidebar"] {
+        }}
+        [data-testid="stSidebar"] {{
             background-color: rgba(15, 23, 42, 0.88);
-        }
+        }}
         [data-testid="stMetricValue"],
         [data-testid="stMetricLabel"],
         [data-testid="stMarkdownContainer"],
-        [data-testid="stHeader"] {
+        [data-testid="stHeader"] {{
             color: #e5e7eb;
-        }
+        }}
         {bg_overlay_css}
         </style>
         """,
