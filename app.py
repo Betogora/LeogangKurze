@@ -89,8 +89,8 @@ def _apply_theme_mode(light_mode: bool, bg_data_uri: str) -> None:
             inset: 0;
             background-image: url('{bg_data_uri}');
             background-repeat: no-repeat;
-            background-position: right center;
-            background-size: auto 100%;
+            background-position: center center;
+            background-size: cover;
             opacity: 0.5;
             -webkit-mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
             mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
@@ -198,6 +198,37 @@ def _render_history_chart(chart_df, light_mode: bool) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
+def _counter_value_color(value: int, light_mode: bool) -> str:
+    magnitude = min(abs(int(value)), 50)
+    intensity = magnitude / 50.0
+    if light_mode:
+        # Light mode: blue scale from muted to strong
+        low = (59, 130, 246)
+        high = (29, 78, 216)
+    else:
+        # Dark mode: cyan scale from muted to vivid
+        low = (34, 211, 238)
+        high = (6, 182, 212)
+    r = int(low[0] + (high[0] - low[0]) * intensity)
+    g = int(low[1] + (high[1] - low[1]) * intensity)
+    b = int(low[2] + (high[2] - low[2]) * intensity)
+    return f"rgb({r}, {g}, {b})"
+
+
+def _render_counter_header(player: str, current_value: int, light_mode: bool) -> None:
+    value_color = _counter_value_color(current_value, light_mode)
+    label_color = "#1f2937" if light_mode else "#d1d5db"
+    st.markdown(
+        f"""
+        <div style="line-height:1.1; margin-bottom:0.4rem;">
+            <div style="font-size:0.9rem; color:{label_color};">{player}</div>
+            <div style="font-size:2rem; font-weight:700; color:{value_color};">{current_value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _arm_action(action_key: str) -> None:
     st.session_state[f"armed_until:{action_key}"] = time.time() + CONFIRM_TIMEOUT_SECONDS
 
@@ -282,20 +313,26 @@ def main() -> None:
             st.caption("Hintergrundbild fehlt: bitte `assets/kai.jpg` ins Projekt legen.")
 
     st.subheader("Counter Steuerung")
+    light_mode = bool(st.session_state.get("light_mode", False))
     for row_start in (0, 4):
         cols = st.columns(4)
         for index, col in enumerate(cols):
             player = PLAYERS[row_start + index]
             with col:
                 current_value = counters.get(player, 0)
-                st.metric(label=player, value=current_value)
+                _render_counter_header(player, current_value, light_mode)
                 d1, d2 = st.columns(2)
                 d3, d4 = st.columns(2)
                 a1, a2 = st.columns(2)
                 reset_action_key = f"{player}:reset"
                 undo_action_key = f"{player}:undo"
 
-                if d1.button(f"-{STEP_LARGE}", key=f"{player}-minus-large", use_container_width=True):
+                if d1.button(
+                    f"-{STEP_LARGE}",
+                    key=f"{player}-minus-large",
+                    use_container_width=True,
+                    type="primary",
+                ):
                     if _run_db_action(
                         action_key=f"{player}:minus_large",
                         callback=lambda p=player: add_counter_event(engine, p, -STEP_LARGE),
@@ -313,7 +350,12 @@ def main() -> None:
                         callback=lambda p=player: add_counter_event(engine, p, STEP_SMALL),
                     ):
                         st.rerun()
-                if d4.button(f"+{STEP_LARGE}", key=f"{player}-plus-large", use_container_width=True):
+                if d4.button(
+                    f"+{STEP_LARGE}",
+                    key=f"{player}-plus-large",
+                    use_container_width=True,
+                    type="primary",
+                ):
                     if _run_db_action(
                         action_key=f"{player}:plus_large",
                         callback=lambda p=player: add_counter_event(engine, p, STEP_LARGE),
