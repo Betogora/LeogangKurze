@@ -5,8 +5,13 @@ from typing import Callable, Dict, Optional
 import streamlit as st
 from sqlalchemy.exc import SQLAlchemyError
 
+try:
+    from db import DatabaseConfigError
+except ImportError:
+    # Backward compatibility for deployments with older db.py
+    DatabaseConfigError = RuntimeError
+
 from db import (
-    DatabaseConfigError,
     add_counter_event,
     get_database_url,
     get_engine,
