@@ -5,15 +5,8 @@ from typing import Callable, Dict, Optional
 import streamlit as st
 from sqlalchemy.exc import SQLAlchemyError
 
-try:
-    from db import DatabaseConfigError
-except ImportError:
-    # Backward compatibility for deployments with older db.py
-    DatabaseConfigError = RuntimeError
-
 from db import (
     add_counter_event,
-    get_database_url,
     get_engine,
     get_event_history,
     get_latest_counters,
@@ -55,25 +48,6 @@ def _init_ui_state() -> None:
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-
-
-def _show_db_setup_error(message: str) -> None:
-    st.error("Die Datenbank ist nicht konfiguriert.")
-    st.markdown(
-        "\n".join(
-            [
-                "Bitte setze `DATABASE_URL` in den Streamlit-Secrets oder als Umgebungsvariable.",
-                "",
-                "Checkliste:",
-                "- Streamlit Cloud: App -> Settings -> Secrets",
-                "- Lokal: Umgebungsvariable `DATABASE_URL` setzen",
-                "- Danach die App neu starten",
-            ]
-        )
-    )
-    st.code('DATABASE_URL = "postgresql+psycopg2://USER:PASSWORD@HOST:PORT/DBNAME"')
-    st.caption(message)
-    st.stop()
 
 
 def _show_db_runtime_error(error: Exception) -> None:
@@ -119,9 +93,9 @@ def _run_db_action(action_key: str, callback: Callable[[], None]) -> bool:
 
 @st.cache_resource
 def get_db_engine():
-    database_url = st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", ""))
+    database_url = st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
     if not database_url:
-        database_url = get_database_url()
+        database_url = "sqlite:///counter_local.db"
     engine = get_engine(database_url)
     init_db(engine, PLAYERS)
     return engine
@@ -134,14 +108,20 @@ def main() -> None:
 
     _init_ui_state()
 
+    using_fallback_db = not bool(st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", "")).strip())
+
     try:
         engine = get_db_engine()
-    except DatabaseConfigError as exc:
-        _show_db_setup_error(str(exc))
     except SQLAlchemyError as exc:
         _show_db_runtime_error(exc)
     except Exception as exc:
         _show_db_runtime_error(exc)
+
+    if using_fallback_db:
+        st.warning(
+            "Kein DATABASE_URL gesetzt. Die App nutzt aktuell lokale SQLite-Persistenz "
+            "(`counter_local.db`). Fuer Cloud-Persistenz bitte `DATABASE_URL` in Secrets setzen."
+        )
 
     try:
         counters = get_latest_counters(engine, PLAYERS)
