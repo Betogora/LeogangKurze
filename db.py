@@ -23,7 +23,12 @@ def get_engine(database_url: str) -> Engine:
     return create_engine(database_url, pool_pre_ping=True, future=True)
 
 
+def _is_sqlite(engine: Engine) -> bool:
+    return engine.dialect.name == "sqlite"
+
+
 def init_db(engine: Engine, players: Iterable[str]) -> None:
+    is_sqlite = _is_sqlite(engine)
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -34,19 +39,34 @@ def init_db(engine: Engine, players: Iterable[str]) -> None:
                 """
             )
         )
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS counter_events (
-                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    player_name TEXT NOT NULL REFERENCES players(player_name),
-                    delta INTEGER NOT NULL,
-                    counter_value INTEGER NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                );
-                """
+        if is_sqlite:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS counter_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        player_name TEXT NOT NULL REFERENCES players(player_name),
+                        delta INTEGER NOT NULL,
+                        counter_value INTEGER NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
             )
-        )
+        else:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE IF NOT EXISTS counter_events (
+                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        player_name TEXT NOT NULL REFERENCES players(player_name),
+                        delta INTEGER NOT NULL,
+                        counter_value INTEGER NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                    """
+                )
+            )
         conn.execute(
             text(
                 """
@@ -79,19 +99,17 @@ def get_latest_counters(engine: Engine, players: Iterable[str]) -> Dict[str, int
                 """
                 SELECT
                     p.player_name,
-                    COALESCE(last_event.counter_value, 0) AS counter_value
+                    COALESCE((
+                        SELECT ce.counter_value
+                        FROM counter_events ce
+                        WHERE ce.player_name = p.player_name
+                        ORDER BY ce.created_at DESC, ce.id DESC
+                        LIMIT 1
+                    ), 0) AS counter_value
                 FROM players p
-                LEFT JOIN LATERAL (
-                    SELECT ce.counter_value
-                    FROM counter_events ce
-                    WHERE ce.player_name = p.player_name
-                    ORDER BY ce.created_at DESC, ce.id DESC
-                    LIMIT 1
-                ) AS last_event ON TRUE
-                WHERE p.player_name = ANY(:players);
+                ORDER BY p.player_name;
                 """
             ),
-            {"players": player_values},
         )
         for row in rows:
             result[row.player_name] = int(row.counter_value)
@@ -206,8 +224,12 @@ def get_event_history(engine: Engine, hours: Optional[int] = None) -> pd.DataFra
     """
     params = {}
     if hours is not None:
-        query += " WHERE created_at >= NOW() - (:hours || ' hours')::interval"
-        params["hours"] = hours
+        if _is_sqlite(engine):
+            query += " WHERE created_at >= datetime('now', :hours_expr)"
+            params["hours_expr"] = f"-{int(hours)} hours"
+        else:
+            query += " WHERE created_at >= NOW() - (:hours || ' hours')::interval"
+            params["hours"] = hours
 
     query += " ORDER BY created_at ASC, id ASC"
     return pd.read_sql_query(text(query), engine, params=params)
