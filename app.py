@@ -44,10 +44,37 @@ def _init_ui_state() -> None:
         "step_large": 5,
         "visible_players": PLAYERS.copy(),
         "selected_window": "Letzte 24 Stunden",
+        "theme_mode": "Dunkel",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def _apply_theme_mode(theme_mode: str) -> None:
+    if theme_mode != "Hell":
+        return
+
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background-color: #f5f7fb;
+            color: #111827;
+        }
+        [data-testid="stSidebar"] {
+            background-color: #eef2f9;
+        }
+        [data-testid="stMetricValue"],
+        [data-testid="stMetricLabel"],
+        [data-testid="stMarkdownContainer"],
+        [data-testid="stHeader"] {
+            color: #111827;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _show_db_runtime_error(error: Exception) -> None:
@@ -117,12 +144,6 @@ def main() -> None:
     except Exception as exc:
         _show_db_runtime_error(exc)
 
-    if using_fallback_db:
-        st.warning(
-            "Kein DATABASE_URL gesetzt. Die App nutzt aktuell lokale SQLite-Persistenz "
-            "(`counter_local.db`). Fuer Cloud-Persistenz bitte `DATABASE_URL` in Secrets setzen."
-        )
-
     try:
         counters = get_latest_counters(engine, PLAYERS)
     except Exception as exc:
@@ -130,6 +151,9 @@ def main() -> None:
 
     with st.sidebar:
         st.subheader("QoL Einstellungen")
+        st.select_slider("Theme", options=["Dunkel", "Hell"], key="theme_mode")
+        _apply_theme_mode(st.session_state["theme_mode"])
+
         step_small = int(st.number_input("Kleiner Schritt", min_value=1, step=1, key="step_small"))
         step_large = int(st.number_input("Grosser Schritt", min_value=2, step=1, key="step_large"))
         visible_players = st.multiselect(
@@ -139,6 +163,11 @@ def main() -> None:
         )
         if step_large <= step_small:
             st.info("Hinweis: Grosser Schritt ist kleiner/gleich kleinem Schritt.")
+        if using_fallback_db:
+            st.caption(
+                "Hinweis: Kein `DATABASE_URL` gesetzt, derzeit SQLite (`counter_local.db`). "
+                "Fuer Cloud-Persistenz bitte Secrets konfigurieren."
+            )
 
     st.subheader("Counter Steuerung")
     for row_start in (0, 4):
