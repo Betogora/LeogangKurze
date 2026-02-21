@@ -148,29 +148,31 @@ def main() -> None:
             with col:
                 current_value = counters.get(player, 0)
                 st.metric(label=player, value=current_value)
-                b1, b2, b3, b4, b5 = st.columns(5)
+                d1, d2 = st.columns(2)
+                d3, d4 = st.columns(2)
+                a1, a2 = st.columns(2)
                 reset_action_key = f"{player}:reset"
                 undo_action_key = f"{player}:undo"
 
-                if b1.button(f"-{step_large}", key=f"{player}-minus-large", use_container_width=True):
+                if d1.button(f"-{step_large}", key=f"{player}-minus-large", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:minus_large",
                         callback=lambda p=player, step=step_large: add_counter_event(engine, p, -int(step)),
                     ):
                         st.rerun()
-                if b2.button(f"-{step_small}", key=f"{player}-minus-small", use_container_width=True):
+                if d2.button(f"-{step_small}", key=f"{player}-minus-small", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:minus_small",
                         callback=lambda p=player, step=step_small: add_counter_event(engine, p, -int(step)),
                     ):
                         st.rerun()
-                if b3.button(f"+{step_small}", key=f"{player}-plus-small", use_container_width=True):
+                if d3.button(f"+{step_small}", key=f"{player}-plus-small", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:plus_small",
                         callback=lambda p=player, step=step_small: add_counter_event(engine, p, int(step)),
                     ):
                         st.rerun()
-                if b4.button(f"+{step_large}", key=f"{player}-plus-large", use_container_width=True):
+                if d4.button(f"+{step_large}", key=f"{player}-plus-large", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:plus_large",
                         callback=lambda p=player, step=step_large: add_counter_event(engine, p, int(step)),
@@ -178,7 +180,7 @@ def main() -> None:
                         st.rerun()
 
                 reset_label = "Reset bestaetigen" if _is_action_armed(reset_action_key) else "Reset"
-                if b5.button(reset_label, key=f"{player}-reset", use_container_width=True):
+                if a1.button(reset_label, key=f"{player}-reset", use_container_width=True):
                     if _is_action_armed(reset_action_key):
                         _disarm_action(reset_action_key)
                         if _run_db_action(
@@ -190,22 +192,8 @@ def main() -> None:
                         _arm_action(reset_action_key)
                         st.info(f"{player}: Reset innerhalb von {CONFIRM_TIMEOUT_SECONDS}s bestaetigen.")
 
-                target_value = st.number_input(
-                    "Direkt setzen",
-                    value=int(current_value),
-                    step=1,
-                    key=f"{player}-target-value",
-                )
-                e1, e2 = st.columns(2)
-                if e1.button("Setzen", key=f"{player}-set-exact", use_container_width=True):
-                    if _run_db_action(
-                        action_key=f"{player}:set",
-                        callback=lambda p=player, value=target_value: set_counter_value(engine, p, int(value)),
-                    ):
-                        st.rerun()
-
                 undo_label = "Undo bestaetigen" if _is_action_armed(undo_action_key) else "Undo"
-                if e2.button(undo_label, key=f"{player}-undo", use_container_width=True):
+                if a2.button(undo_label, key=f"{player}-undo", use_container_width=True):
                     if _is_action_armed(undo_action_key):
                         _disarm_action(undo_action_key)
                         if _run_db_action(
@@ -216,6 +204,19 @@ def main() -> None:
                     else:
                         _arm_action(undo_action_key)
                         st.info(f"{player}: Undo innerhalb von {CONFIRM_TIMEOUT_SECONDS}s bestaetigen.")
+
+                target_value = st.number_input(
+                    "Direkt setzen",
+                    value=int(current_value),
+                    step=1,
+                    key=f"{player}-target-value",
+                )
+                if st.button("Setzen", key=f"{player}-set-exact", use_container_width=True):
+                    if _run_db_action(
+                        action_key=f"{player}:set",
+                        callback=lambda p=player, value=target_value: set_counter_value(engine, p, int(value)),
+                    ):
+                        st.rerun()
 
     st.divider()
     st.subheader("Linienplots")
