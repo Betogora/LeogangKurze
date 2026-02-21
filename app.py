@@ -1,7 +1,10 @@
 import os
 import time
+import base64
+from pathlib import Path
 from typing import Callable, Dict, Optional
 
+import altair as alt
 import streamlit as st
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -36,41 +39,111 @@ TIME_WINDOWS: Dict[str, Optional[int]] = {
 
 CONFIRM_TIMEOUT_SECONDS = 8
 ACTION_COOLDOWN_SECONDS = 0.75
+STEP_SMALL = 1
+STEP_LARGE = 5
 
 
 def _init_ui_state() -> None:
     defaults = {
-        "step_small": 1,
-        "step_large": 5,
         "visible_players": PLAYERS.copy(),
         "selected_window": "Letzte 24 Stunden",
-        "theme_mode": "Dunkel",
+        "light_mode": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
-def _apply_theme_mode(theme_mode: str) -> None:
-    if theme_mode != "Hell":
+@st.cache_data
+def _load_background_image_data_uri(image_path: str) -> str:
+    path = Path(image_path)
+    if not path.exists():
+        return ""
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def _resolve_background_image_data_uri() -> str:
+    candidates = [
+        Path(__file__).resolve().parent / "assets" / "kai.jpg",
+        Path(
+            "C:/Users/bengt/.cursor/projects/"
+            "c-Users-bengt-OneDrive-Desktop-10-Desktop/assets/"
+            "c__Users_bengt_OneDrive_Desktop_10_Desktop_assets_kai.jpg"
+        ),
+    ]
+    for candidate in candidates:
+        data_uri = _load_background_image_data_uri(str(candidate))
+        if data_uri:
+            return data_uri
+    return ""
+
+
+def _apply_theme_mode(light_mode: bool, bg_data_uri: str) -> None:
+    bg_overlay_css = ""
+    if bg_data_uri:
+        bg_overlay_css = f"""
+        .stApp::before {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            background-image: url('{bg_data_uri}');
+            background-repeat: no-repeat;
+            background-position: right center;
+            background-size: auto 100%;
+            opacity: 0.5;
+            -webkit-mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+            mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+            pointer-events: none;
+            z-index: 0;
+        }}
+        .stApp > header, .stApp > div {{
+            position: relative;
+            z-index: 1;
+        }}
+        """
+
+    if light_mode:
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-color: #f5f7fb;
+                color: #111827;
+            }}
+            [data-testid="stSidebar"] {{
+                background-color: rgba(238, 242, 249, 0.92);
+            }}
+            [data-testid="stMetricValue"],
+            [data-testid="stMetricLabel"],
+            [data-testid="stMarkdownContainer"],
+            [data-testid="stHeader"] {{
+                color: #111827;
+            }}
+            {bg_overlay_css}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         return
 
     st.markdown(
-        """
+        f"""
         <style>
         .stApp {
-            background-color: #f5f7fb;
-            color: #111827;
+            background-color: #0b1220;
+            color: #e5e7eb;
         }
         [data-testid="stSidebar"] {
-            background-color: #eef2f9;
+            background-color: rgba(15, 23, 42, 0.88);
         }
         [data-testid="stMetricValue"],
         [data-testid="stMetricLabel"],
         [data-testid="stMarkdownContainer"],
         [data-testid="stHeader"] {
-            color: #111827;
+            color: #e5e7eb;
         }
+        {bg_overlay_css}
         </style>
         """,
         unsafe_allow_html=True,
@@ -83,6 +156,46 @@ def _show_db_runtime_error(error: Exception) -> None:
     with st.expander("Technische Details"):
         st.code(str(error))
     st.stop()
+
+
+def _render_history_chart(chart_df, light_mode: bool) -> None:
+    plot_df = chart_df.reset_index().melt(
+        id_vars="created_at",
+        var_name="player_name",
+        value_name="counter_value",
+    )
+    axis_color = "#111827" if light_mode else "#e5e7eb"
+    grid_color = "#d1d5db" if light_mode else "#374151"
+    chart = (
+        alt.Chart(plot_df)
+        .mark_line()
+        .encode(
+            x=alt.X("created_at:T", title="Zeit"),
+            y=alt.Y("counter_value:Q", title="Counter"),
+            color=alt.Color(
+                "player_name:N",
+                title="Spieler",
+                scale=alt.Scale(scheme="tableau10"),
+            ),
+            tooltip=[
+                alt.Tooltip("created_at:T", title="Zeit"),
+                alt.Tooltip("player_name:N", title="Spieler"),
+                alt.Tooltip("counter_value:Q", title="Counter"),
+            ],
+        )
+        .properties(height=360)
+        .configure_axis(
+            labelColor=axis_color,
+            titleColor=axis_color,
+            gridColor=grid_color,
+        )
+        .configure_legend(
+            labelColor=axis_color,
+            titleColor=axis_color,
+        )
+        .configure_view(strokeOpacity=0)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 def _arm_action(action_key: str) -> None:
@@ -130,10 +243,11 @@ def get_db_engine():
 
 def main() -> None:
     st.set_page_config(page_title="Player Counter Dashboard", layout="wide")
+    _init_ui_state()
+    bg_data_uri = _resolve_background_image_data_uri()
+    _apply_theme_mode(bool(st.session_state.get("light_mode", False)), bg_data_uri)
     st.title("Player Counter Dashboard")
     st.caption("Persistente Counter-Historie fuer 8 Spieler")
-
-    _init_ui_state()
 
     using_fallback_db = not bool(st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", "")).strip())
 
@@ -151,23 +265,21 @@ def main() -> None:
 
     with st.sidebar:
         st.subheader("QoL Einstellungen")
-        st.select_slider("Theme", options=["Dunkel", "Hell"], key="theme_mode")
-        _apply_theme_mode(st.session_state["theme_mode"])
-
-        step_small = int(st.number_input("Kleiner Schritt", min_value=1, step=1, key="step_small"))
-        step_large = int(st.number_input("Grosser Schritt", min_value=2, step=1, key="step_large"))
+        st.toggle("Light Mode", key="light_mode")
         visible_players = st.multiselect(
             "Spieler im Plot",
             options=PLAYERS,
             key="visible_players",
         )
-        if step_large <= step_small:
-            st.info("Hinweis: Grosser Schritt ist kleiner/gleich kleinem Schritt.")
         if using_fallback_db:
             st.caption(
                 "Hinweis: Kein `DATABASE_URL` gesetzt, derzeit SQLite (`counter_local.db`). "
-                "Fuer Cloud-Persistenz bitte Secrets konfigurieren."
+                "Bei App-Sleep/Neustart in der Cloud sind diese Daten nicht verlaesslich dauerhaft."
             )
+        else:
+            st.caption("Externe DB aktiv: Daten bleiben auch nach Inaktivitaet/Neustart erhalten.")
+        if not bg_data_uri:
+            st.caption("Hintergrundbild fehlt: bitte `assets/kai.jpg` ins Projekt legen.")
 
     st.subheader("Counter Steuerung")
     for row_start in (0, 4):
@@ -183,28 +295,28 @@ def main() -> None:
                 reset_action_key = f"{player}:reset"
                 undo_action_key = f"{player}:undo"
 
-                if d1.button(f"-{step_large}", key=f"{player}-minus-large", use_container_width=True):
+                if d1.button(f"-{STEP_LARGE}", key=f"{player}-minus-large", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:minus_large",
-                        callback=lambda p=player, step=step_large: add_counter_event(engine, p, -int(step)),
+                        callback=lambda p=player: add_counter_event(engine, p, -STEP_LARGE),
                     ):
                         st.rerun()
-                if d2.button(f"-{step_small}", key=f"{player}-minus-small", use_container_width=True):
+                if d2.button(f"-{STEP_SMALL}", key=f"{player}-minus-small", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:minus_small",
-                        callback=lambda p=player, step=step_small: add_counter_event(engine, p, -int(step)),
+                        callback=lambda p=player: add_counter_event(engine, p, -STEP_SMALL),
                     ):
                         st.rerun()
-                if d3.button(f"+{step_small}", key=f"{player}-plus-small", use_container_width=True):
+                if d3.button(f"+{STEP_SMALL}", key=f"{player}-plus-small", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:plus_small",
-                        callback=lambda p=player, step=step_small: add_counter_event(engine, p, int(step)),
+                        callback=lambda p=player: add_counter_event(engine, p, STEP_SMALL),
                     ):
                         st.rerun()
-                if d4.button(f"+{step_large}", key=f"{player}-plus-large", use_container_width=True):
+                if d4.button(f"+{STEP_LARGE}", key=f"{player}-plus-large", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:plus_large",
-                        callback=lambda p=player, step=step_large: add_counter_event(engine, p, int(step)),
+                        callback=lambda p=player: add_counter_event(engine, p, STEP_LARGE),
                     ):
                         st.rerun()
 
@@ -285,7 +397,7 @@ def main() -> None:
                 chart_df[player] = 0
         chart_df = chart_df[visible_players]
 
-        st.line_chart(chart_df, use_container_width=True)
+        _render_history_chart(chart_df, bool(st.session_state.get("light_mode", False)))
         st.download_button(
             "CSV Export (aktueller Zeitraum)",
             data=event_history.to_csv(index=False).encode("utf-8"),
