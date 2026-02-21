@@ -41,7 +41,7 @@ TIME_WINDOWS: Dict[str, Optional[int]] = {
 CONFIRM_TIMEOUT_SECONDS = 8
 ACTION_COOLDOWN_SECONDS = 0.75
 STEP_SMALL = 1
-GLOBAL_HISTORY_START_UTC = pd.Timestamp("2026-02-21 13:30:00", tz="UTC")
+GLOBAL_HISTORY_START_LOCAL = pd.Timestamp("2026-02-21 13:30:00")
 
 
 def _init_ui_state() -> None:
@@ -92,8 +92,18 @@ def _apply_theme_mode(bg_data_uri: str) -> None:
             background-position: right top;
             background-size: auto 100%;
             opacity: 0.5;
-            -webkit-mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
-            mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
+            pointer-events: none;
+            z-index: 0;
+        }}
+        .stApp::after {{
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(
+                to left,
+                rgba(11, 18, 32, 0) 0%,
+                rgba(11, 18, 32, 1) 100%
+            );
             pointer-events: none;
             z-index: 0;
         }}
@@ -180,8 +190,14 @@ def _apply_global_history_start(event_history: pd.DataFrame) -> pd.DataFrame:
     if event_history.empty:
         return event_history
     filtered = event_history.copy()
-    created_at_utc = pd.to_datetime(filtered["created_at"], errors="coerce", utc=True)
-    filtered = filtered.loc[created_at_utc >= GLOBAL_HISTORY_START_UTC].copy()
+    # Normalize to Europe/Vienna local time so the 13:30 cutoff
+    # matches the expected wall-clock time.
+    created_at_local = (
+        pd.to_datetime(filtered["created_at"], errors="coerce", utc=True)
+        .dt.tz_convert("Europe/Vienna")
+        .dt.tz_localize(None)
+    )
+    filtered = filtered.loc[created_at_local >= GLOBAL_HISTORY_START_LOCAL].copy()
     filtered["created_at"] = pd.to_datetime(filtered["created_at"], errors="coerce")
     return filtered
 
