@@ -40,14 +40,12 @@ TIME_WINDOWS: Dict[str, Optional[int]] = {
 CONFIRM_TIMEOUT_SECONDS = 8
 ACTION_COOLDOWN_SECONDS = 0.75
 STEP_SMALL = 1
-STEP_LARGE = 5
 
 
 def _init_ui_state() -> None:
     defaults = {
         "visible_players": PLAYERS.copy(),
         "selected_window": "Letzte 24 Stunden",
-        "light_mode": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -79,7 +77,7 @@ def _resolve_background_image_data_uri() -> str:
     return ""
 
 
-def _apply_theme_mode(light_mode: bool, bg_data_uri: str) -> None:
+def _apply_theme_mode(bg_data_uri: str) -> None:
     bg_overlay_css = ""
     if bg_data_uri:
         bg_overlay_css = f"""
@@ -89,8 +87,8 @@ def _apply_theme_mode(light_mode: bool, bg_data_uri: str) -> None:
             inset: 0;
             background-image: url('{bg_data_uri}');
             background-repeat: no-repeat;
-            background-position: center center;
-            background-size: cover;
+            background-position: right top;
+            background-size: auto 100%;
             opacity: 0.5;
             -webkit-mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
             mask-image: linear-gradient(to left, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0) 100%);
@@ -102,30 +100,6 @@ def _apply_theme_mode(light_mode: bool, bg_data_uri: str) -> None:
             z-index: 1;
         }}
         """
-
-    if light_mode:
-        st.markdown(
-            f"""
-            <style>
-            .stApp {{
-                background-color: #f5f7fb;
-                color: #111827;
-            }}
-            [data-testid="stSidebar"] {{
-                background-color: rgba(238, 242, 249, 0.92);
-            }}
-            [data-testid="stMetricValue"],
-            [data-testid="stMetricLabel"],
-            [data-testid="stMarkdownContainer"],
-            [data-testid="stHeader"] {{
-                color: #111827;
-            }}
-            {bg_overlay_css}
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        return
 
     st.markdown(
         f"""
@@ -158,15 +132,15 @@ def _show_db_runtime_error(error: Exception) -> None:
     st.stop()
 
 
-def _render_history_chart(chart_df, light_mode: bool) -> None:
+def _render_history_chart(chart_df) -> None:
     plot_df = chart_df.reset_index().melt(
         id_vars="created_at",
         var_name="player_name",
         value_name="counter_value",
     )
-    axis_color = "#111827" if light_mode else "#e5e7eb"
-    grid_color = "#d1d5db" if light_mode else "#374151"
-    plot_fill = "#ffffff" if light_mode else "#0f172a"
+    axis_color = "#e5e7eb"
+    grid_color = "#374151"
+    plot_fill = "#0f172a"
     chart = (
         alt.Chart(plot_df)
         .mark_line()
@@ -200,26 +174,20 @@ def _render_history_chart(chart_df, light_mode: bool) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
-def _counter_value_color(value: int, light_mode: bool) -> str:
+def _counter_value_color(value: int) -> str:
     magnitude = min(abs(int(value)), 50)
     intensity = magnitude / 50.0
-    if light_mode:
-        # Light mode: blue scale from muted to strong
-        low = (59, 130, 246)
-        high = (29, 78, 216)
-    else:
-        # Dark mode: cyan scale from muted to vivid
-        low = (34, 211, 238)
-        high = (6, 182, 212)
+    low = (34, 211, 238)
+    high = (6, 182, 212)
     r = int(low[0] + (high[0] - low[0]) * intensity)
     g = int(low[1] + (high[1] - low[1]) * intensity)
     b = int(low[2] + (high[2] - low[2]) * intensity)
     return f"rgb({r}, {g}, {b})"
 
 
-def _render_counter_header(player: str, current_value: int, light_mode: bool) -> None:
-    value_color = _counter_value_color(current_value, light_mode)
-    label_color = "#1f2937" if light_mode else "#d1d5db"
+def _render_counter_header(player: str, current_value: int) -> None:
+    value_color = _counter_value_color(current_value)
+    label_color = "#d1d5db"
     st.markdown(
         f"""
         <div style="line-height:1.1; margin-bottom:0.4rem;">
@@ -278,9 +246,9 @@ def main() -> None:
     st.set_page_config(page_title="Player Counter Dashboard", layout="wide")
     _init_ui_state()
     bg_data_uri = _resolve_background_image_data_uri()
-    _apply_theme_mode(bool(st.session_state.get("light_mode", False)), bg_data_uri)
-    st.title("Player Counter Dashboard")
-    st.caption("Persistente Counter-Historie fuer 8 Spieler")
+    _apply_theme_mode(bg_data_uri)
+    st.title("LeoGÄNG")
+    st.caption("Kai hat heute frei")
 
     using_fallback_db = not bool(st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", "")).strip())
 
@@ -296,96 +264,100 @@ def main() -> None:
     except Exception as exc:
         _show_db_runtime_error(exc)
 
-    with st.sidebar:
-        st.subheader("QoL Einstellungen")
-        st.toggle("Light Mode", key="light_mode")
-        visible_players = st.multiselect(
-            "Spieler im Plot",
-            options=PLAYERS,
-            key="visible_players",
-        )
-        if using_fallback_db:
-            st.caption(
-                "Hinweis: Kein `DATABASE_URL` gesetzt, derzeit SQLite (`counter_local.db`). "
-                "Bei App-Sleep/Neustart in der Cloud sind diese Daten nicht verlaesslich dauerhaft."
-            )
+    st.subheader("Linienplots")
+
+    hours = TIME_WINDOWS[st.session_state["selected_window"]]
+    try:
+        event_history = get_event_history(engine, hours=hours)
+    except Exception as exc:
+        _show_db_runtime_error(exc)
+
+    visible_players = st.session_state["visible_players"]
+    if event_history.empty:
+        st.info("Noch keine Daten vorhanden. Bitte zuerst Counter klicken.")
+    else:
+        if visible_players:
+            event_history = event_history[event_history["player_name"].isin(visible_players)]
         else:
-            st.caption("Externe DB aktiv: Daten bleiben auch nach Inaktivitaet/Neustart erhalten.")
-        if not bg_data_uri:
-            st.caption("Hintergrundbild fehlt: bitte `assets/kai.jpg` ins Projekt legen.")
+            st.warning("Keine Spieler fuer den Plot ausgewaehlt.")
+            event_history = event_history.iloc[0:0]
 
-    header_left, header_right = st.columns([3, 1])
-    with header_left:
-        st.subheader("Counter Steuerung")
-    global_reset_key = "global:reset_all"
-    with header_right:
-        global_reset_label = (
-            "Alle Reset bestaetigen" if _is_action_armed(global_reset_key) else "Alle auf 0"
+        if not event_history.empty:
+            chart_df = event_history.pivot_table(
+                index="created_at",
+                columns="player_name",
+                values="counter_value",
+                aggfunc="last",
+            ).sort_index()
+            chart_df = chart_df.ffill().fillna(0)
+
+            for player in visible_players:
+                if player not in chart_df.columns:
+                    chart_df[player] = 0
+            chart_df = chart_df[visible_players]
+
+            _render_history_chart(chart_df)
+
+        st.download_button(
+            "CSV Export (aktueller Zeitraum)",
+            data=event_history.to_csv(index=False).encode("utf-8"),
+            file_name="counter_events.csv",
+            mime="text/csv",
+            use_container_width=True,
         )
-        if st.button(global_reset_label, use_container_width=True, type="primary"):
-            if _is_action_armed(global_reset_key):
-                _disarm_action(global_reset_key)
-                if _run_db_action(
-                    action_key=global_reset_key,
-                    callback=lambda: [
-                        reset_counter(engine, player)
-                        for player in PLAYERS
-                        if counters.get(player, 0) != 0
-                    ],
-                ):
-                    st.rerun()
-            else:
-                _arm_action(global_reset_key)
-                st.warning(
-                    f"Globaler Reset: bitte innerhalb von {CONFIRM_TIMEOUT_SECONDS}s bestaetigen."
-                )
 
-    light_mode = bool(st.session_state.get("light_mode", False))
+        with st.expander("Letzte Events anzeigen"):
+            st.dataframe(
+                event_history.sort_values("created_at", ascending=False).head(100),
+                use_container_width=True,
+            )
+
+    st.subheader("Einstellungen")
+    st.selectbox("Zeitraum", options=list(TIME_WINDOWS.keys()), key="selected_window")
+    visible_players = st.multiselect(
+        "Spieler im Plot",
+        options=PLAYERS,
+        key="visible_players",
+    )
+    if st.button("Aktualisieren", use_container_width=True):
+        st.rerun()
+    if using_fallback_db:
+        st.caption(
+            "Hinweis: Kein `DATABASE_URL` gesetzt, derzeit SQLite (`counter_local.db`). "
+            "Bei App-Sleep/Neustart in der Cloud sind diese Daten nicht verlaesslich dauerhaft."
+        )
+    else:
+        st.caption("Externe DB aktiv: Daten bleiben auch nach Inaktivitaet/Neustart erhalten.")
+    if not bg_data_uri:
+        st.caption("Hintergrundbild fehlt: bitte `assets/kai.jpg` ins Projekt legen.")
+
+    st.subheader("Counter Steuerung")
     for row_start in (0, 4):
         cols = st.columns(4)
         for index, col in enumerate(cols):
             player = PLAYERS[row_start + index]
             with col:
                 current_value = counters.get(player, 0)
-                _render_counter_header(player, current_value, light_mode)
+                _render_counter_header(player, current_value)
                 d1, d2 = st.columns(2)
-                d3, d4 = st.columns(2)
                 a1, a2 = st.columns(2)
                 reset_action_key = f"{player}:reset"
                 undo_action_key = f"{player}:undo"
 
                 if d1.button(
-                    f"-{STEP_LARGE}",
-                    key=f"{player}-minus-large",
+                    f"-{STEP_SMALL}",
+                    key=f"{player}-minus-small",
                     use_container_width=True,
-                    type="primary",
                 ):
-                    if _run_db_action(
-                        action_key=f"{player}:minus_large",
-                        callback=lambda p=player: add_counter_event(engine, p, -STEP_LARGE),
-                    ):
-                        st.rerun()
-                if d2.button(f"-{STEP_SMALL}", key=f"{player}-minus-small", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:minus_small",
                         callback=lambda p=player: add_counter_event(engine, p, -STEP_SMALL),
                     ):
                         st.rerun()
-                if d3.button(f"+{STEP_SMALL}", key=f"{player}-plus-small", use_container_width=True):
+                if d2.button(f"+{STEP_SMALL}", key=f"{player}-plus-small", use_container_width=True):
                     if _run_db_action(
                         action_key=f"{player}:plus_small",
                         callback=lambda p=player: add_counter_event(engine, p, STEP_SMALL),
-                    ):
-                        st.rerun()
-                if d4.button(
-                    f"+{STEP_LARGE}",
-                    key=f"{player}-plus-large",
-                    use_container_width=True,
-                    type="primary",
-                ):
-                    if _run_db_action(
-                        action_key=f"{player}:plus_large",
-                        callback=lambda p=player: add_counter_event(engine, p, STEP_LARGE),
                     ):
                         st.rerun()
 
@@ -427,59 +399,6 @@ def main() -> None:
                         callback=lambda p=player, value=target_value: set_counter_value(engine, p, int(value)),
                     ):
                         st.rerun()
-
-    st.divider()
-    st.subheader("Linienplots")
-
-    left, right = st.columns([2, 1])
-    with left:
-        selected_window = st.selectbox("Zeitraum", options=list(TIME_WINDOWS.keys()), key="selected_window")
-    with right:
-        if st.button("Aktualisieren", use_container_width=True):
-            st.rerun()
-
-    hours = TIME_WINDOWS[selected_window]
-    try:
-        event_history = get_event_history(engine, hours=hours)
-    except Exception as exc:
-        _show_db_runtime_error(exc)
-
-    if event_history.empty:
-        st.info("Noch keine Daten vorhanden. Bitte zuerst Counter klicken.")
-    else:
-        if visible_players:
-            event_history = event_history[event_history["player_name"].isin(visible_players)]
-        else:
-            st.warning("Keine Spieler fuer den Plot ausgewaehlt.")
-            return
-
-        chart_df = event_history.pivot_table(
-            index="created_at",
-            columns="player_name",
-            values="counter_value",
-            aggfunc="last",
-        ).sort_index()
-        chart_df = chart_df.ffill().fillna(0)
-
-        for player in visible_players:
-            if player not in chart_df.columns:
-                chart_df[player] = 0
-        chart_df = chart_df[visible_players]
-
-        _render_history_chart(chart_df, bool(st.session_state.get("light_mode", False)))
-        st.download_button(
-            "CSV Export (aktueller Zeitraum)",
-            data=event_history.to_csv(index=False).encode("utf-8"),
-            file_name="counter_events.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-
-        with st.expander("Letzte Events anzeigen"):
-            st.dataframe(
-                event_history.sort_values("created_at", ascending=False).head(100),
-                use_container_width=True,
-            )
 
 
 if __name__ == "__main__":
