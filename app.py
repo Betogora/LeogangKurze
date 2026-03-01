@@ -275,7 +275,7 @@ def main() -> None:
     _init_ui_state()
     bg_data_uri = _resolve_background_image_data_uri()
     _apply_theme_mode(bg_data_uri)
-    st.title("LeoGÄNG")
+    st.title("LeoGÄNGFitzi")
     st.caption("Kai hat heute frei")
 
     using_fallback_db = not bool(st.secrets.get("DATABASE_URL", os.getenv("DATABASE_URL", "")).strip())
